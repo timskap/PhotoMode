@@ -1,12 +1,12 @@
+using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using static Cinemachine.AxisState;
-using PhotoMode;
+
 
 namespace PhotoMode
 {
 
-    public class CustomInputProvider : MonoBehaviour, IInputAxisProvider
+    public class CustomInputProvider : MonoBehaviour, AxisState.IInputAxisProvider
     {
         [SerializeField] private InputActionReference XYAxisAction;
 

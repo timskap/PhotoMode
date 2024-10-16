@@ -1,12 +1,12 @@
 using System.Collections;
+using Unity.Cinemachine;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
-using Cinemachine;
-using PhotoMode;
+
 
 namespace PhotoMode
 {
@@ -18,8 +18,8 @@ namespace PhotoMode
 
         private EventSystem projectEventSystem;
         private CinemachineBrain projectCinemachineBrain;
-        CinemachineBrain.UpdateMethod project_cm_update;
-        CinemachineBlendDefinition.Style project_cm_blend;
+        CinemachineBrain.UpdateMethods project_cm_update;
+        CinemachineBlendDefinition.Styles project_cm_blend;
 
         [Header("Character Reference")]
         [SerializeField] private GameObject playerObject;
@@ -79,8 +79,8 @@ namespace PhotoMode
             if (FindObjectOfType<CinemachineBrain>() != null)
             {
                 projectCinemachineBrain = FindObjectOfType<CinemachineBrain>();
-                project_cm_blend = projectCinemachineBrain.m_DefaultBlend.m_Style;
-                project_cm_update = projectCinemachineBrain.m_UpdateMethod;
+                project_cm_blend = projectCinemachineBrain.DefaultBlend.Style;
+                project_cm_update = projectCinemachineBrain.UpdateMethod;
             }
 
             //Store the project's Event System
@@ -190,11 +190,11 @@ namespace PhotoMode
         // Camera Offset functionality
         public void CraneCamera(float value)
         {
-            if (value < 0 && photoModeCameraOffset.m_Offset.y > verticalArm.min)
-                photoModeCameraOffset.m_Offset.y -= (verticalArmSpeed * Mathf.Abs(value)) * Time.unscaledDeltaTime;
+            if (value < 0 && photoModeCameraOffset.Offset.y > verticalArm.min)
+                photoModeCameraOffset.Offset.y -= (verticalArmSpeed * Mathf.Abs(value)) * Time.unscaledDeltaTime;
 
-            if (value > 0 && photoModeCameraOffset.m_Offset.y < verticalArm.max)
-                photoModeCameraOffset.m_Offset.y += (verticalArmSpeed * Mathf.Abs(value)) * Time.unscaledDeltaTime;
+            if (value > 0 && photoModeCameraOffset.Offset.y < verticalArm.max)
+                photoModeCameraOffset.Offset.y += (verticalArmSpeed * Mathf.Abs(value)) * Time.unscaledDeltaTime;
         }
 
         // Invoked by applicable UI sliders when their value changes
@@ -205,7 +205,7 @@ namespace PhotoMode
 
         public void CameraDistance(Slider slider)
         {
-            photoModeCameraOffset.m_Offset.z = (slider.value - slider.minValue) / (slider.maxValue - slider.minValue) * (camDist.max - camDist.min) + camDist.min;
+            photoModeCameraOffset.Offset.z = (slider.value - slider.minValue) / (slider.maxValue - slider.minValue) * (camDist.max - camDist.min) + camDist.min;
         }
 
         public void FocusDistance(Slider slider)
@@ -285,7 +285,7 @@ namespace PhotoMode
                 return;
 
             //Reset camera Crane & Zoom
-            photoModeCameraOffset.m_Offset = Vector3.zero;
+            photoModeCameraOffset.Offset = Vector3.zero;
 
             //Reset the photo mode camera position
             photoModeCamera.m_XAxis.Value = photoModeCameraXAxis;
@@ -341,20 +341,40 @@ namespace PhotoMode
         {
             if (projectCinemachineBrain != null)
             {
-                projectCinemachineBrain.m_IgnoreTimeScale = active;
-                projectCinemachineBrain.m_UpdateMethod = active ? CinemachineBrain.UpdateMethod.SmartUpdate : project_cm_update;
+                // Cinemachine no longer supports IgnoreTimeScale, we handle it manually if needed
+                if (active)
+                {
+                    Time.timeScale = 1f; // Set to normal time scale if required
+                }
+
+                // Update the brain's update method
+                projectCinemachineBrain.UpdateMethod = active ? CinemachineBrain.UpdateMethods.SmartUpdate : project_cm_update;
+
+                // Start the blend time reset coroutine
                 StartCoroutine(BlendTimeReset());
 
                 IEnumerator BlendTimeReset()
                 {
-                    float blendTime = projectCinemachineBrain.m_DefaultBlend.m_Time;
-                    projectCinemachineBrain.m_DefaultBlend.m_Time = 0;
-                    projectCinemachineBrain.m_DefaultBlend.m_Style = active ? CinemachineBlendDefinition.Style.Cut : project_cm_blend;
+                    // Cache the original blend time
+                    float originalBlendTime = projectCinemachineBrain.DefaultBlend.Time;
+            
+                    // Temporarily set the blend time to 0
+                    projectCinemachineBrain.DefaultBlend.Time = 0;
+            
+                    // Change the blend style
+                    projectCinemachineBrain.DefaultBlend.Style = active 
+                        ? CinemachineBlendDefinition.Styles.Cut 
+                        : project_cm_blend;
+
+                    // Wait for the next frame before restoring the blend time
                     yield return new WaitForEndOfFrame();
-                    projectCinemachineBrain.m_DefaultBlend.m_Time = blendTime;
+
+                    // Restore the original blend time
+                    projectCinemachineBrain.DefaultBlend.Time = originalBlendTime;
                 }
             }
         }
+
 
         /// <summary>
         /// Utilize this function to determine the object that the Photo Mode Camera will orbit around.
