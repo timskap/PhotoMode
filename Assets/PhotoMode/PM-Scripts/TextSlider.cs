@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Events;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using TMPro;
 using PhotoMode;
@@ -8,7 +9,7 @@ namespace PhotoMode
 {
 
     [RequireComponent(typeof(Slider))]
-    public class TextSlider : MonoBehaviour
+    public class TextSlider : MonoBehaviour, IPointerClickHandler
     {
         private Slider slider;
 
@@ -37,6 +38,22 @@ namespace PhotoMode
             slider.minValue = 0;
             slider.maxValue = options.Length - 1;
             UpdateTextSlider(slider.value);
+        }
+
+        // These text-only Sliders have no fill/handle for Slider.OnPointerDown.
+        // Keep their existing keyboard navigation and route arrow clicks explicitly.
+        public void OnPointerClick(PointerEventData eventData)
+        {
+            if (eventData.button != PointerEventData.InputButton.Left ||
+                eventData.dragging || !isActiveAndEnabled || !slider.IsActive() || !slider.IsInteractable())
+                return;
+
+            if (RectTransformUtility.RectangleContainsScreenPoint(leftArrow.rectTransform,
+                    eventData.position, eventData.pressEventCamera))
+                slider.value -= 1;
+            else if (RectTransformUtility.RectangleContainsScreenPoint(rightArrow.rectTransform,
+                    eventData.position, eventData.pressEventCamera))
+                slider.value += 1;
         }
 
         public void UpdateTextSlider(float index)

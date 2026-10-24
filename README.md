@@ -18,15 +18,38 @@ Photo Mode comes with the following features: View Roll, View Distance, Focus Di
 
 ## Requirements
 
-- This package requires Unity version 2020.3 LTS or higher, along with the Universal Render Pipeline.
+- This compatibility branch targets **Unity 6000.6.7f1 with URP 17.6.0 and Render Graph enabled**. Earlier Editor/package versions and Compatibility Mode have not been validated for these changes.
 
-- If importing this demo into your own project, be sure to have the following packages installed: Cinemachine v2.6.5 +, Input System v1.0.2 +, TextMeshPro v3.0.6 +
+- The standalone consumer resolved Cinemachine **6.6.0**, Input System **1.20.0**, and uGUI/TextMeshPro **2.6.0**. Import the TMP Essential Resources supplied with uGUI. The camera deliberately retains Cinemachine's deprecated FreeLook compatibility types; a full camera migration is outside this repair.
 
 - A scene containing a Cinemachine Brain and Virtual Camera (set to your preference)
 
 <br>
 
-## Setup
+## Unity 6000.6.7f1 consumer setup
+
+The repository is a complete historical sample, not a UPM package. Its original ProjectVersion and package manifest are retained; those files do not describe the verified new consumer. Do not infer compatibility with the old sample Editor from this branch.
+
+1. Create a fresh Universal 3D project using the exact Editor above and the resolved package versions listed under Requirements.
+2. Copy `Assets/PhotoMode` and its `.meta` files from this branch. Exclude `PM-TutorialInfo` and its folder metadata: its global `Readme` classes conflict with the new-project template tutorial. Do not copy Library, Temp, UserSettings or the donor ProjectSettings.
+3. Import **TMP Essential Resources** from the installed uGUI package. The tested import used this step after copying PhotoMode, updating the embedded TMP resource GUIDs in the consumer. Missing Essentials can leave all menu text blank.
+The prefab's Filter Materials list must retain its six typed material assets under `Materials/Filters`. They preserve shader-specific texture/default dependencies in Player builds; storing those values only as inactive properties on the Unlit blit material produced a missing DotOverlay circle mask in native tests. Runtime changes copy template properties into an isolated material and never mutate the templates.
+
+4. In the consumer, create a scene with a visible subject, Main Camera plus Cinemachine Brain, and a normal game camera. Enable post-processing on the Main Camera. Instantiate the PhotoMode prefab and assign its Player Object.
+5. Add a **Blit** renderer feature to the renderer actually used by the consumer camera, assign `PhotoMode/Materials/BlitMaterial`, and assign that same feature to the prefab's Blit field. Do not rely on an unused donor renderer. Give the game camera priority above the inactive PhotoMode camera (for example 10), and below its active priority (99).
+6. Use Input System Dynamic Update and a single active EventSystem. PhotoMode temporarily takes input/camera/cursor ownership and restores the captured state on exit or disable. Test P, exit, and the UI with Game View focused.
+
+Filter and Frame support left-clicks on their existing arrow indicators; each click selects one option. Keyboard/controller slider navigation is preserved. The bottom info bar displays input-key hints, rather than clickable buttons.
+
+The renderer now records a Render Graph raster pass using the existing `_MainTex` Shader Graph filters, an intermediate color texture, clip-space drawing and restored camera matrices. No legacy Execute/RTHandle path remains. Multi-camera stacks, XR, physical controller behavior and other Unity versions are not covered by this pilot.
+
+API cleanup uses FindAnyObjectByType for the single-host fallback and an owned persistent fullscreen quad with disposal on renderer-feature recreation/shutdown. This preserves the existing Unlit Shader Graph vertex/texture contract. With multiple eligible hosts, fallback selection is arbitrary; explicitly assign Player Object.
+
+The camera still uses deprecated CinemachineFreeLook and AxisState.IInputAxisProvider compatibility interfaces. A modern CinemachineCamera/OrbitalFollow/InputAxisController migration requires coordinated prefab and control changes and is deferred. These warnings remain visible; no warning suppression is applied.
+
+Regression checks cover timeScale 1/0.5/0, 10 activation cycles, disabled PlayerInput preservation, component/prefab disable, disabled-component activation rejection, callback lifetime, camera blend restoration and shared-material isolation. Visual checks cover all six filters, four frames, DOF/color settings, grid, stickers and Hide UI. Windows Mono build results and private lab evidence are maintained separately; a successful build is not a manual native-input verdict.
+
+## Historical sample setup
 
 Context for these steps can be viewed in our [Photo Mode Overview Video](https://youtu.be/GEPJZwFt2DM).
 
