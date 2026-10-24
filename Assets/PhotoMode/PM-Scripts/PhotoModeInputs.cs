@@ -61,52 +61,71 @@ namespace PhotoMode
         public float modifier1_value;
         public float modifier2_value;
 
-        private void Start()
+        private readonly System.Collections.Generic.List<InputAction> ownedActions = new System.Collections.Generic.List<InputAction>();
+
+        private void OnEnable()
         {
-            //Enable Action Asset
-            photoModeActionAsset.Enable();
-
-            //Submit Input
-            submitAction.action.performed += SubmitAction_performed;
-
-            //Navigation Input
-            navigationAction.action.performed += NavigateAction_performed;
-
-            //Look Input
-            lookAction.action.performed += LookAction_performed;
-
-            //Reset Input
-            resetAction.action.performed += ResetAction_performed;
-
-            //Pause Input
-            pauseAction.action.performed += PauseAction_performed;
-
-            //Grid Input
-            toggleGridAction.action.performed += GridAction_performed;
-
-            //Interface Toggle Input
-            toggleInterfaceAction.action.performed += InterfaceAction_performed;
-
-            //Swap Sticker Input
-            swapStickerAction.action.performed += SwapStickerAction_performed;
-
-            //Delete Sticker Input
-            deleteStickerAction.action.performed += DeleteStickerAction_performed;
-
-            //Flip Sticker Input
-            flipStickerAction.action.performed += ExtraAction_performed;
-
-            //Modifier Inputs
-            modifier1Action.action.performed += Modifier1Action_performed;
-            modifier2Action.action.performed += Modifier2Action_performed;
-
-            //Any input
-            photoModeActionAsset.actionMaps[0].actionTriggered += PhotoModeInputs_actionTriggered;
-            photoModeActionAsset.actionMaps[1].actionTriggered += PhotoModeInputs_actionTriggered;
-
+            BindActions(true);
+            if (photoModeActionAsset == null)
+                return;
+            foreach (var map in photoModeActionAsset.actionMaps)
+            {
+                map.actionTriggered += PhotoModeInputs_actionTriggered;
+                foreach (var action in map.actions)
+                {
+                    if (!action.enabled)
+                    {
+                        ownedActions.Add(action);
+                        action.Enable();
+                    }
+                }
+            }
         }
 
+        private void OnDisable()
+        {
+            BindActions(false);
+            if (photoModeActionAsset != null)
+                foreach (var map in photoModeActionAsset.actionMaps)
+                    map.actionTriggered -= PhotoModeInputs_actionTriggered;
+            foreach (var action in ownedActions)
+                action.Disable();
+            ownedActions.Clear();
+            moveAxis = lookAxis = Vector2.zero;
+            modifier1_value = modifier2_value = 0;
+        }
 
+        private void BindActions(bool bind)
+        {
+            Bind(submitAction, SubmitAction_performed, bind);
+            Bind(navigationAction, NavigateAction_performed, bind, true);
+            Bind(lookAction, LookAction_performed, bind, true);
+            Bind(resetAction, ResetAction_performed, bind);
+            Bind(pauseAction, PauseAction_performed, bind);
+            Bind(toggleGridAction, GridAction_performed, bind);
+            Bind(toggleInterfaceAction, InterfaceAction_performed, bind);
+            Bind(swapStickerAction, SwapStickerAction_performed, bind);
+            Bind(deleteStickerAction, DeleteStickerAction_performed, bind);
+            Bind(flipStickerAction, ExtraAction_performed, bind);
+            Bind(modifier1Action, Modifier1Action_performed, bind, true);
+            Bind(modifier2Action, Modifier2Action_performed, bind, true);
+        }
+
+        private static void Bind(InputActionReference reference, System.Action<InputAction.CallbackContext> callback, bool bind, bool canceled = false)
+        {
+            if (reference == null || reference.action == null)
+                return;
+            if (bind)
+            {
+                reference.action.performed += callback;
+                if (canceled) reference.action.canceled += callback;
+            }
+            else
+            {
+                reference.action.performed -= callback;
+                if (canceled) reference.action.canceled -= callback;
+            }
+        }
         private void ResetAction_performed(InputAction.CallbackContext callback)
         {
             ResetEvent.Invoke();
@@ -171,15 +190,15 @@ namespace PhotoMode
         {
 
             //Set current device and switch instructions
-            if (currentInputDevice != obj.control.device)
+            if (obj.control != null && currentInputDevice != obj.control.device)
             {
                 currentInputDevice = obj.control.device;
 
-                string deviceName = obj.control.device.ToString();
-                bool isDeviceKeyboard = deviceName == "Keyboard:/Keyboard";
-                bool isDeviceMouse = deviceName == "Mouse:/Mouse";
+                // Match device types, including renamed or synthetic devices.
+                bool isDeviceKeyboard = obj.control.device is Keyboard;
+                bool isDeviceMouse = obj.control.device is Mouse;
 
-                infoBarController.SetKeyboardModeActive(isDeviceKeyboard || isDeviceMouse);
+                if (infoBarController != null) infoBarController.SetKeyboardModeActive(isDeviceKeyboard || isDeviceMouse);
             }
         }
 

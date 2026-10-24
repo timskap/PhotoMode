@@ -1,62 +1,75 @@
 using UnityEngine;
-using PhotoMode;
+using UnityEngine.InputSystem;
 
 namespace PhotoMode
 {
-	public class PhotoModePauser : MonoBehaviour
-	{
-		[SerializeField] private bool pauseActionActivation = false;
+    public class PhotoModePauser : MonoBehaviour
+    {
+        [SerializeField] private bool pauseActionActivation;
+        private PlayerInput playerInput;
+        private PhotoModeInputs photoModeInputs;
+        private PhotoMode photoModeBehaviors;
+        private PhotoModeStickerController stickerController;
+        private bool gamePaused;
+        private float originalTimeScale;
+        private bool originalInputEnabled;
 
-		private UnityEngine.InputSystem.PlayerInput playerInput;
+        private void Awake()
+        {
+            playerInput = FindAnyObjectByType<PlayerInput>();
+            photoModeInputs = GetComponent<PhotoModeInputs>();
+            photoModeBehaviors = GetComponent<PhotoMode>();
+            stickerController = GetComponentInChildren<PhotoModeStickerController>(true);
+        }
 
-		private PhotoModeInputs photoModeInputs;
-		private PhotoMode photoModeBehaviors;
-		private PhotoModeStickerController stickerController;
+        private void OnEnable()
+        {
+            photoModeBehaviors.OnPhotoModeActivation.AddListener(HandlePhotoModeActivation);
+            if (pauseActionActivation)
+                photoModeInputs.PauseEvent.AddListener(PauseAction);
+        }
 
-		private bool gamePaused;
+        private void OnDisable()
+        {
+            photoModeBehaviors.OnPhotoModeActivation.RemoveListener(HandlePhotoModeActivation);
+            photoModeInputs.PauseEvent.RemoveListener(PauseAction);
+            if (gamePaused)
+                PauseGame(false);
+        }
 
-		private void Awake()
-		{
-			//Check if there's a PlayerInput component in the scene
-			if (FindObjectOfType<UnityEngine.InputSystem.PlayerInput>() != null)
-				playerInput = FindObjectOfType<UnityEngine.InputSystem.PlayerInput>();
+        private void HandlePhotoModeActivation(bool active)
+        {
+            if (!active && gamePaused)
+                PauseGame(false);
+        }
 
-			photoModeInputs = GetComponent<PhotoModeInputs>();
-			photoModeBehaviors = GetComponent<PhotoMode>();
-			stickerController = GetComponentInChildren<PhotoModeStickerController>();
+        public void PauseAction()
+        {
+            if (!isActiveAndEnabled || !photoModeBehaviors.isActiveAndEnabled)
+                return;
+            if (gamePaused && stickerController != null && stickerController.IsActive())
+            {
+                stickerController.ToggleStickerMode(false);
+                return;
+            }
+            PauseGame(!gamePaused);
+        }
 
-			if (pauseActionActivation)
-			{
-				photoModeInputs.PauseEvent.AddListener(PauseAction);
-			}
-		}
+        private void PauseGame(bool pause)
+        {
+            if (pause == gamePaused)
+                return;
 
-		public void PauseAction()
-		{
-			PauseGame(!gamePaused);
-		}
-
-		private void PauseGame(bool pause)
-		{
-			//StickerMode check
-			if (stickerController.IsActive())
-			{
-				stickerController.ToggleStickerMode(false);
-				return;
-			}
-
-			//Storing original timeScale
-			float originalTimeScale = 1;
-			if (pause)
-				originalTimeScale = Time.deltaTime;
-
-			gamePaused = pause;
-			Time.timeScale = gamePaused ? 0 : originalTimeScale;
-			photoModeBehaviors.Activate(pause);
-
-			//Disable/enable player's input on pause
-			if (playerInput)
-				playerInput.enabled = !pause;
-		}
-	}
+            if (pause)
+            {
+                originalTimeScale = Time.timeScale;
+                originalInputEnabled = playerInput != null && playerInput.enabled;
+            }
+            gamePaused = pause;
+            Time.timeScale = pause ? 0 : originalTimeScale;
+            if (playerInput != null)
+                playerInput.enabled = pause ? false : originalInputEnabled;
+            photoModeBehaviors.Activate(pause);
+        }
+    }
 }

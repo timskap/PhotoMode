@@ -19,7 +19,12 @@ namespace PhotoMode
         private EventSystem projectEventSystem;
         private CinemachineBrain projectCinemachineBrain;
         CinemachineBrain.UpdateMethods project_cm_update;
-        CinemachineBlendDefinition.Styles project_cm_blend;
+        CinemachineBlendDefinition project_cm_blend;
+        private bool projectIgnoreTimeScale;
+        private int originalCameraPriority;
+        private bool originalEventSystemEnabled;
+        private CursorLockMode originalCursorLock;
+        private bool originalCursorVisible;
 
         [Header("Character Reference")]
         [SerializeField] private GameObject playerObject;
@@ -57,11 +62,16 @@ namespace PhotoMode
 
         [Header("Filter Material")]
         [SerializeField] private Material postProcessingMaterial;
+        [SerializeField] private Material[] filterMaterials;
         [SerializeField] private Blit blit;
 
         [Header("Debug Behavior")]
         [SerializeField] private PhotoModeDebugger photoModeDebugger;
 
+        private Material runtimeFilterMaterial;
+        private Material previousBlitMaterial;
+        private bool previousBlitActive;
+        private bool ownsVolumeProfile;
         private Shader unlitShader;
         private bool photoModeOn;
         private Color vignetteColor;
@@ -76,10 +86,10 @@ namespace PhotoMode
             instance = this;
 
             //Check if projectCinemachineBrain is set
-            if (FindObjectOfType<CinemachineBrain>() != null)
+            projectCinemachineBrain = FindAnyObjectByType<CinemachineBrain>();
+            if (projectCinemachineBrain != null)
             {
-                projectCinemachineBrain = FindObjectOfType<CinemachineBrain>();
-                project_cm_blend = projectCinemachineBrain.DefaultBlend.Style;
+                project_cm_blend = projectCinemachineBrain.DefaultBlend;
                 project_cm_update = projectCinemachineBrain.UpdateMethod;
             }
 
@@ -93,6 +103,7 @@ namespace PhotoMode
             photoModeCameraOffset = photoModeCamera.GetComponent<CinemachineCameraOffset>();
             photoModeUI = transform.Find("PhotoMode_UI");
             photoModeVolume = GetComponentInChildren<Volume>();
+            ownsVolumeProfile = !photoModeVolume.HasInstantiatedProfile();
             photoModeVolumeProfile = photoModeVolume.profile;
             photoModeVolumeProfile.TryGet<DepthOfField>(out dof);
             photoModeVolumeProfile.TryGet<ColorAdjustments>(out colorAdj);
@@ -113,10 +124,15 @@ namespace PhotoMode
 
             //Get the unlit texture shader for use later
             unlitShader = Shader.Find("Unlit/Texture");
+            if (postProcessingMaterial != null) runtimeFilterMaterial = new Material(postProcessingMaterial);
 
             //Try to force finding a player
-            if (playerObject == null && FindObjectOfType<UnityEngine.InputSystem.PlayerInput>() != null)
-                playerObject = FindObjectOfType<UnityEngine.InputSystem.PlayerInput>().gameObject;
+            if (playerObject == null)
+            {
+                var input = FindAnyObjectByType<UnityEngine.InputSystem.PlayerInput>();
+                if (input != null)
+                    playerObject = input.gameObject;
+            }
 
             if (playerObject != null)
                 photoModeCameraOrbit.transform.position = playerObject.transform.position;
@@ -146,7 +162,18 @@ namespace PhotoMode
         // Toggles applicable Photo Mode values based on game's pause status
         public void Activate(bool active)
         {
+            if (photoModeOn == active)
+                return;
+            if (active)
+            {
+                originalCameraPriority = photoModeCamera.Priority;
+                originalCursorLock = Cursor.lockState;
+                originalCursorVisible = Cursor.visible;
+            }
+            photoModeOn = active;
             OnPhotoModeActivation.Invoke(active);
+            Cursor.lockState = active ? CursorLockMode.None : originalCursorLock;
+            Cursor.visible = active || originalCursorVisible;
 
             if (photoModeCameraOrbit != null && playerObject != null)
                 photoModeCameraOrbit.transform.position = playerObject.transform.position;
@@ -156,12 +183,15 @@ namespace PhotoMode
 
             //Project EventSystem configuration
             if (active)
+            {
                 projectEventSystem = EventSystem.current;
+                originalEventSystemEnabled = projectEventSystem != null && projectEventSystem.enabled;
+            }
 
             if (projectEventSystem != null)
             {
                 if (projectEventSystem != photoModeEventSystem)
-                    projectEventSystem.enabled = !active;
+                    projectEventSystem.enabled = !active && originalEventSystemEnabled;
             }
 
             photoModeEventSystem.enabled = active;
@@ -177,11 +207,23 @@ namespace PhotoMode
             ResetValues();
 
             //Transition Cameras
-            photoModeOn = active;
-            photoModeCamera.Priority = active ? 99 : 1;
+            photoModeCamera.Priority = active ? 99 : originalCameraPriority;
 
             if (blit != null)
-                blit.SetActive(active);
+            {
+                if (active)
+                {
+                    previousBlitMaterial = blit.blitMaterial;
+                    previousBlitActive = blit.isActive;
+                    blit.blitMaterial = runtimeFilterMaterial;
+                    blit.SetActive(true);
+                }
+                else
+                {
+                    blit.blitMaterial = previousBlitMaterial;
+                    blit.SetActive(previousBlitActive);
+                }
+            }
 
             if (active == true)
                 SetEventSystemSelectedObj(GetComponentInChildren<Slider>().gameObject);
@@ -242,7 +284,20 @@ namespace PhotoMode
 
         public void ChangeFilter(Shader shader)
         {
-            postProcessingMaterial.shader = shader;
+            if (runtimeFilterMaterial == null || shader == null)
+                return;
+            runtimeFilterMaterial.shader = shader;
+            if (filterMaterials == null)
+                return;
+            foreach (var material in filterMaterials)
+            {
+                if (material != null && material.shader == shader)
+                {
+                    // Typed material assets retain shader-specific textures/defaults in Player builds.
+                    runtimeFilterMaterial.CopyPropertiesFromMaterial(material);
+                    break;
+                }
+            }
         }
 
         public void ChangeFrame(GameObject frame)
@@ -339,43 +394,42 @@ namespace PhotoMode
 
         private void ProjectCinemachineConfig(bool active)
         {
-            if (projectCinemachineBrain != null)
+            if (projectCinemachineBrain == null)
+                return;
+            if (active)
             {
-                // Cinemachine no longer supports IgnoreTimeScale, we handle it manually if needed
-                if (active)
-                {
-                    Time.timeScale = 1f; // Set to normal time scale if required
-                }
-
-                // Update the brain's update method
-                projectCinemachineBrain.UpdateMethod = active ? CinemachineBrain.UpdateMethods.SmartUpdate : project_cm_update;
-
-                // Start the blend time reset coroutine
-                StartCoroutine(BlendTimeReset());
-
-                IEnumerator BlendTimeReset()
-                {
-                    // Cache the original blend time
-                    float originalBlendTime = projectCinemachineBrain.DefaultBlend.Time;
-            
-                    // Temporarily set the blend time to 0
-                    projectCinemachineBrain.DefaultBlend.Time = 0;
-            
-                    // Change the blend style
-                    projectCinemachineBrain.DefaultBlend.Style = active 
-                        ? CinemachineBlendDefinition.Styles.Cut 
-                        : project_cm_blend;
-
-                    // Wait for the next frame before restoring the blend time
-                    yield return new WaitForEndOfFrame();
-
-                    // Restore the original blend time
-                    projectCinemachineBrain.DefaultBlend.Time = originalBlendTime;
-                }
+                project_cm_update = projectCinemachineBrain.UpdateMethod;
+                project_cm_blend = projectCinemachineBrain.DefaultBlend;
+                projectIgnoreTimeScale = projectCinemachineBrain.IgnoreTimeScale;
+                projectCinemachineBrain.IgnoreTimeScale = true;
+                projectCinemachineBrain.UpdateMethod = CinemachineBrain.UpdateMethods.LateUpdate;
+                projectCinemachineBrain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.Cut, 0);
+            }
+            else
+            {
+                projectCinemachineBrain.UpdateMethod = project_cm_update;
+                projectCinemachineBrain.DefaultBlend = project_cm_blend;
+                projectCinemachineBrain.IgnoreTimeScale = projectIgnoreTimeScale;
             }
         }
 
+        private void OnDestroy()
+        {
+            if (instance == this) instance = null;
+            if (runtimeFilterMaterial != null) Destroy(runtimeFilterMaterial);
+            if (ownsVolumeProfile && photoModeVolumeProfile != null)
+            {
+                foreach (var component in photoModeVolumeProfile.components)
+                    if (component != null) Destroy(component);
+                Destroy(photoModeVolumeProfile);
+            }
+        }
 
+        private void OnDisable()
+        {
+            if (photoModeOn)
+                Activate(false);
+        }
         /// <summary>
         /// Utilize this function to determine the object that the Photo Mode Camera will orbit around.
         /// </summary>
